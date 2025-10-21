@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta charset="utf-8" />
+		<title>WavePortal Demo</title>
+	</head>
+	<body>
+		<h1>WavePortal</h1>
+		<div>
+			<button id="connectBtn">Connect Wallet</button>
+			<div>Account: <span id="account">Not connected</span></div>
+		</div>
+
+		<hr />
+
+		<div>
+			<input id="messageInput" placeholder="Your wave message" size="60" />
+			<button id="waveBtn">Send Wave</button>
+		</div>
+
+		<div>
+			<button id="refreshBtn">Get All Waves</button>
+		</div>
+
+		<ul id="wavesList"></ul>
+
+		<script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+		<script>
+			const contractAddress = "0xd108bb3422636b515c33FB6996F015D628CDEe9F";
+			const contractABI = [
+				{
+					inputs: [],
+					stateMutability: "nonpayable",
+					type: "constructor",
+				},
+				{
+					anonymous: false,
+					inputs: [
+						{
+							indexed: true,
+							internalType: "address",
+							name: "from",
+							type: "address",
+						},
+						{
+							indexed: false,
+							internalType: "string",
+							name: "message",
+							type: "string",
+						},
+						{
+							indexed: false,
+							internalType: "uint256",
+							name: "timestamp",
+							type: "uint256",
+						},
+					],
+					name: "NewWave",
+					type: "event",
+				},
+				{
+					inputs: [],
+					name: "getAllWaves",
+					outputs: [
+						{
+							components: [
+								{
+									internalType: "address",
+									name: "waver",
+									type: "address",
+								},
+								{
+									internalType: "string",
+									name: "message",
+									type: "string",
+								},
+								{
+									internalType: "uint256",
+									name: "timestamp",
+									type: "uint256",
+								},
+							],
+							internalType: "struct WavePortal.Wave[]",
+							name: "",
+							type: "tuple[]",
+						},
+					],
+					stateMutability: "view",
+					type: "function",
+				},
+				{
+					inputs: [],
+					name: "getTotalWaves",
+					outputs: [
+						{
+							internalType: "uint256",
+							name: "",
+							type: "uint256",
+						},
+					],
+					stateMutability: "view",
+					type: "function",
+				},
+				{
+					inputs: [],
+					name: "totalWaves",
+					outputs: [
+						{
+							internalType: "uint256",
+							name: "",
+							type: "uint256",
+						},
+					],
+					stateMutability: "view",
+					type: "function",
+				},
+				{
+					inputs: [
+						{
+							internalType: "string",
+							name: "_message",
+							type: "string",
+						},
+					],
+					name: "wave",
+					outputs: [],
+					stateMutability: "nonpayable",
+					type: "function",
+				},
+				{
+					inputs: [
+						{
+							internalType: "uint256",
+							name: "",
+							type: "uint256",
+						},
+					],
+					name: "waves",
+					outputs: [
+						{
+							internalType: "address",
+							name: "waver",
+							type: "address",
+						},
+						{
+							internalType: "string",
+							name: "message",
+							type: "string",
+						},
+						{
+							internalType: "uint256",
+							name: "timestamp",
+							type: "uint256",
+						},
+					],
+					stateMutability: "view",
+					type: "function",
+				},
+			];
+
+			const connectBtn = document.getElementById("connectBtn");
+			const accountSpan = document.getElementById("account");
+			const waveBtn = document.getElementById("waveBtn");
+			const messageInput = document.getElementById("messageInput");
+			const refreshBtn = document.getElementById("refreshBtn");
+			const wavesList = document.getElementById("wavesList");
+
+			let provider, signer, contract;
+
+			async function connectWallet() {
+				if (!window.ethereum)
+					return alert("MetaMask not found. Install it first.");
+				await window.ethereum.request({ method: "eth_requestAccounts" });
+				provider = new ethers.providers.Web3Provider(window.ethereum);
+				signer = provider.getSigner();
+				const addr = await signer.getAddress();
+				accountSpan.textContent = addr;
+				contract = new ethers.Contract(contractAddress, contractABI, signer);
+			}
+
+			async function sendWave() {
+				const msg = messageInput.value || "Hello from web app!";
+				if (!contract) return alert("Connect wallet first.");
+				try {
+					const tx = await contract.wave(msg);
+					console.log("Transaction sent. Waiting for confirmation...", tx.hash);
+					await tx.wait(); // wait for mining
+					alert("Wave sent! Tx: " + tx.hash);
+				} catch (err) {
+					console.error(err);
+					alert("Error sending wave: " + (err.message || err));
+				}
+			}
+
+			async function getAllWaves() {
+				if (!contract) {
+					// If not connected, create a read-only provider
+					if (!window.ethereum) return alert("MetaMask not found.");
+					provider = new ethers.providers.Web3Provider(window.ethereum);
+					contract = new ethers.Contract(
+						contractAddress,
+						contractABI,
+						provider
+					);
+				}
+				try {
+					const waves = await contract.getAllWaves();
+					wavesList.innerHTML = "";
+					waves.forEach((w) => {
+						const li = document.createElement("li");
+						const time = new Date(
+							w.timestamp.toNumber() * 1000
+						).toLocaleString();
+						li.textContent = `From: ${w.waver} | Time: ${time} | Msg: ${w.message}`;
+						wavesList.appendChild(li);
+					});
+				} catch (err) {
+					console.error(err);
+					alert("Error fetching waves: " + (err.message || err));
+				}
+			}
+
+			connectBtn.onclick = connectWallet;
+			waveBtn.onclick = sendWave;
+			refreshBtn.onclick = getAllWaves;
+
+			// Optional: Listen to NewWave events (requires connected provider)
+			async function startListening() {
+				if (!window.ethereum) return;
+				const readonlyProvider = new ethers.providers.Web3Provider(
+					window.ethereum
+				);
+				const readContract = new ethers.Contract(
+					contractAddress,
+					contractABI,
+					readonlyProvider
+				);
+				readContract.on("NewWave", (from, message, timestamp) => {
+					const li = document.createElement("li");
+					const time = new Date(timestamp.toNumber() * 1000).toLocaleString();
+					li.textContent = `Event - From: ${from} | Time: ${time} | Msg: ${message}`;
+					wavesList.insertBefore(li, wavesList.firstChild);
+				});
+			}
+
+			startListening();
+		</script>
+	</body>
+</html>
